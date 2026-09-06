@@ -1,0 +1,83 @@
+name: Build Hesab APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Find and extract Hesab project
+        shell: bash
+        run: |
+          set -e
+          ZIP="$(find . -maxdepth 3 -type f -iname 'Hesab_Android_App*.zip' -print -quit)"
+          if [ -z "$ZIP" ]; then
+            echo "ERROR: Hesab Android ZIP file was not found."
+            echo "Files in repository:"
+            find . -maxdepth 3 -type f -print
+            exit 1
+          fi
+
+          echo "Found: $ZIP"
+          rm -rf hesab_build
+          mkdir -p hesab_build
+          unzip -o "$ZIP" -d hesab_build
+
+          PROJECT="$(find hesab_build -type f -name package.json -printf '%h\n' | head -n 1)"
+          if [ -z "$PROJECT" ]; then
+            echo "ERROR: package.json was not found inside the ZIP."
+            find hesab_build -maxdepth 4 -type f -print
+            exit 1
+          fi
+
+          echo "Project directory: $PROJECT"
+          echo "PROJECT=$PROJECT" >> "$GITHUB_ENV"
+
+      - name: Install npm packages
+        working-directory: ${{ env.PROJECT }}
+        run: npm install
+
+      - name: Add Android platform
+        working-directory: ${{ env.PROJECT }}
+        run: npx cap add android
+
+      - name: Sync Capacitor
+        working-directory: ${{ env.PROJECT }}
+        run: npx cap sync android
+
+      - name: Build APK
+        working-directory: ${{ env.PROJECT }}/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hesab-debug-apk
+          path: ${{ env.PROJECT }}/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
