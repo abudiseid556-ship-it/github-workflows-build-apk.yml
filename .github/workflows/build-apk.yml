@@ -14,42 +14,67 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Find project ZIP
+        run: |
+          ZIP=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
+          if [ -z "$ZIP" ]; then
+            echo "ERROR: Hesab project ZIP not found."
+            exit 1
+          fi
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+
+      - name: Extract Hesab project
+        run: |
+          rm -rf hesab_android_app
+          unzip -q "$ZIP"
+          if [ -d "hesab_android_app" ]; then
+            cd hesab_android_app
+          else
+            DIR=$(find . -maxdepth 1 -type d -name "hesab*" | head -n 1)
+            mv "$DIR" hesab_android_app
+          fi
+          echo "PROJECT_DIR=$(pwd)" >> "$GITHUB_ENV"
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: hesab_android_app/package.json
 
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: "21"
 
-      - name: Setup Android
+      - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install tools
+      - name: Install Android tools
         run: |
-          sudo apt-get update
-          sudo apt-get install -y unzip
-          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+          sdkmanager "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0"
 
-      - name: Extract Hesab project
-        run: |
-          unzip -o Hesab_Android_App_APK_BuildReady_v2.zip
-          cd hesab_android_app
-          npm install
-          npx cap add android
-          npx cap sync android
+      - name: Install dependencies
+        working-directory: hesab_android_app
+        run: npm install
+
+      - name: Add Android platform
+        working-directory: hesab_android_app
+        run: npx cap add android
+
+      - name: Sync Capacitor
+        working-directory: hesab_android_app
+        run: npx cap sync android
 
       - name: Build APK
-        run: |
-          cd hesab_android_app/android
-          chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+        working-directory: hesab_android_app/android
+        run: ./gradlew assembleDebug --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Hesab-APK
+          name: Hesab-debug-apk
           path: hesab_android_app/android/app/build/outputs/apk/debug/app-debug.apk
